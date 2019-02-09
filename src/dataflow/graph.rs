@@ -6,54 +6,52 @@ use std::ops::Index;
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct Label(pub u32);
 
-
-
-pub trait Instruction: Clone {
-    // If this instruction begins a block, this gives the associated label
-    fn label(&self) -> Option<Label>;
-
-    // If this instruction ends a block, this gives each place we can jump to
-    //   we might return Some(vec![]) if the instruction is a 'return' type instruction
-    //   that is, it is the end of the block, but we're not jumping somewhere else in
-    //   the current graph we are examining.
-    fn successors(&self) -> Option<Vec<Label>>;
+pub trait Entry: Clone {
+    fn label(&self) -> Label;
 }
 
-#[derive(Debug, Clone)]
-pub struct Block<I> {
-    label: Label,
-    successors: Vec<Label>,
-    code: Vec<I>,
+pub trait Instruction: Clone {}
+
+pub trait Exit: Clone {
+    fn successors(&self) -> Vec<Label>;
 }
 
-impl<I: Instruction> Block<I> {
-    pub fn new(code: Vec<I>) -> Option<Block<I>> {
-        let label = code.first().and_then(|i| i.label())?;
-        let successors = code.last().and_then(|i| i.successors())?;
-        Some(Block { label, successors, code })
+pub trait Language: Clone {
+    type Entry: Entry;
+    type Instruction: Instruction;
+    type Exit: Exit;
+}
+
+
+#[derive(Clone)]
+pub struct BasicBlock<L: Language> {
+    pub entry: L::Entry,
+    pub code: Vec<L::Instruction>,
+    pub exit: L::Exit,
+}
+
+impl<L: Language> BasicBlock<L> {
+    pub fn new(entry: L::Entry, code: Vec<L::Instruction>, exit: L::Exit) -> BasicBlock<L> {
+        BasicBlock { entry, code, exit }
     }
 
     pub fn label(&self) -> Label {
-        self.label
+        self.entry.label()
     }
 
-    pub fn successors(&self) -> &[Label] {
-        &self.successors
-    }
-
-    pub fn code(&self) -> &[I] {
-        &self.code
+    pub fn successors(&self) -> Vec<Label> {
+        self.exit.successors()
     }
 }
 
 
-#[derive(Debug, Clone)]
-pub struct Graph<I> {
-    blocks: FnvHashMap<Label, Block<I>>,
+#[derive(Clone)]
+pub struct Graph<L: Language> {
+    blocks: FnvHashMap<Label, BasicBlock<L>>,
 }
 
-impl<I: Instruction> Graph<I> {
-    pub fn from_blocks(blocks: Vec<Block<I>>) -> Graph<I> {
+impl<L: Language> Graph<L> {
+    pub fn from_blocks(blocks: Vec<BasicBlock<L>>) -> Graph<L> {
         // TODO: Error if multiple blocks w/ same label
         let mut map = FnvHashMap::default();
         for block in blocks {
@@ -63,12 +61,12 @@ impl<I: Instruction> Graph<I> {
     }
 
     pub fn post_order_traversal(&self, entry: Label) -> Vec<Label> {
-        fn go<I: Instruction>(graph: &Graph<I>, output: &mut Vec<Label>, visited: &mut FnvHashSet<Label>, label: Label) {
+        fn go<L: Language>(graph: &Graph<L>, output: &mut Vec<Label>, visited: &mut FnvHashSet<Label>, label: Label) {
             if !visited.insert(label) {
                 return;
             }
             for successor in graph.blocks[&label].successors() {
-                go(graph, output, visited, *successor);
+                go(graph, output, visited, successor);
             }
             output.push(label);
         }
@@ -84,8 +82,8 @@ impl<I: Instruction> Graph<I> {
     }
 }
 
-impl<I> Index<Label> for Graph<I> {
-    type Output = Block<I>;
+impl<L: Language> Index<Label> for Graph<L> {
+    type Output = BasicBlock<L>;
 
     fn index(&self, label: Label) -> &Self::Output {
         &self.blocks[&label]

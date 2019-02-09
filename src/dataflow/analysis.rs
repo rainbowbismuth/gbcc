@@ -1,15 +1,15 @@
 use fnv::FnvHashMap;
 
 use super::lattice::Lattice;
-use super::graph::{Label, Instruction, Graph};
+use super::graph::{Label, Language, Graph};
 
-pub struct Analyze<'a, F> {
+pub struct AnalyzeInstruction<'a, F> {
     fact: &'a mut F
 }
 
-impl<'a, F> Analyze<'a, F> {
+impl<'a, F> AnalyzeInstruction<'a, F> {
     fn new(fact: &'a mut F) -> Self {
-        Analyze { fact }
+        AnalyzeInstruction { fact }
     }
 
     pub fn fact(&self) -> &F {
@@ -20,69 +20,88 @@ impl<'a, F> Analyze<'a, F> {
         self.fact
     }
 
-    pub fn replace_single<I>(self, instruction: I) -> Rewrite<I> {
-        Rewrite::new(RewriteEnum::Single(instruction))
+    pub fn replace<L: Language>(self, instruction: L::Instruction) -> RewriteInstruction<L> {
+        RewriteInstruction(RewriteInstructionEnum::Single(instruction))
     }
 
-    pub fn replace_multiple<I>(self, instructions: Vec<I>) -> Rewrite<I> {
-        Rewrite::new(RewriteEnum::Multiple(instructions))
+    pub fn replace_many<L: Language>(self, instructions: Vec<L::Instruction>) -> RewriteInstruction<L> {
+        RewriteInstruction(RewriteInstructionEnum::Multiple(instructions))
     }
 
-    pub fn replace_with_graph<I>(self, jump: I, sub_graph: Graph<I>, exit: I) -> Rewrite<I> {
-        Rewrite::new(RewriteEnum::Graph(jump, sub_graph, exit))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Rewrite<I> {
-    rewrite: RewriteEnum<I>
-}
-
-impl<I> Rewrite<I> {
-    fn new(rewrite: RewriteEnum<I>) -> Self {
-        Rewrite { rewrite }
+    pub fn replace_with_graph<L: Language>(self, exit: L::Exit, sub_graph: Graph<L>, entry: L::Entry) -> RewriteInstruction<L> {
+        RewriteInstruction(RewriteInstructionEnum::Graph(exit, sub_graph, entry))
     }
 }
 
-#[derive(Debug, Clone)]
-enum RewriteEnum<I> {
+#[derive(Clone)]
+pub struct RewriteInstruction<L: Language>(RewriteInstructionEnum<L>);
+
+#[derive(Clone)]
+enum RewriteInstructionEnum<L: Language> {
     // Replace the currently analyzed instruction with this single, new instruction.
-    Single(I),
+    Single(L::Instruction),
 
     // Replace this current instruction with this vector of instructions.
-    //   None of the instructions should have labels or successors.
-    Multiple(Vec<I>),
+    Multiple(Vec<L::Instruction>),
 
     // Replace this current instruction with a sub-graph.
     //   The first argument is the 'jump' that is going to replace the current instruction.
     //   The second argument is a graph with the label that the first argument instruction jumps into.
     //   The final argument is a label instruction that will head the rest of the block.
-    Graph(I, Graph<I>, I),
+    Graph(L::Exit, Graph<L>, L::Entry),
 }
 
+pub enum RewriteExit<L: Language, F> {
+    // The outgoing fact bases should be for the same labels as the same instruction we just analyzed.
+    Done(FactBase<F>),
 
-pub trait ForwardAnalysis<I, F> {
-    // Analyze the current instruction in the block identified by label in the given graph.
-    //   If we return a rewrite, we should have not have modified the fact passed in.
+    // Replace the currently analyzed instruction with this single, new instruction.
+    Single(L::Exit),
 
-    //  Not sure how to handle things like pushing different facts to different successors..
-    //   for the case of conditionals..
-    fn analyze(&mut self,
-               graph: &Graph<I>,
-               label: Label,
-               instruction: &I,
-               analyze: Analyze<F>)
-               -> Option<Rewrite<I>>;
+    // Replace this current instruction with this vector of instructions and a new exit.
+    Extend(Vec<L::Instruction>, L::Exit),
+
+    // Replace this current instruction with a sub-graph.
+    //   The first argument is the 'jump' that is going to replace the current instruction.
+    //   The second argument is a graph with the label that the first argument instruction jumps into.
+    //   The final argument is a label instruction that will head the rest of the block.
+    Graph(L::Exit, Graph<L>, L::Entry),
+}
+
+pub trait ForwardAnalysis<L: Language, F> {
+    fn analyze_entry(
+        &mut self,
+        graph: &Graph<L>,
+        label: Label,
+        entry: &L::Entry,
+        fact: F)
+        -> F;
+
+    fn analyze_instruction(
+        &mut self,
+        graph: &Graph<L>,
+        label: Label,
+        instruction: &L::Instruction,
+        analyze: AnalyzeInstruction<F>)
+        -> Option<RewriteInstruction<L>>;
+
+    fn analyze_exit(
+        &mut self,
+        graph: &Graph<L>,
+        label: Label,
+        exit: &L::Exit,
+        fact: &F)
+        -> RewriteExit<L, F>;
 }
 
 
 pub type FactBase<F> = FnvHashMap<Label, F>;
 
 
-pub fn forward_analysis<I, A, F>(analysis: &mut A, graph: &Graph<I>, entry: Label, entry_fact: F) -> FactBase<F>
+pub fn forward_analysis<L, A, F>(analysis: &mut A, graph: &Graph<L>, entry: Label, entry_fact: F) -> FactBase<F>
     where
-        I: Instruction,
-        A: ForwardAnalysis<I, F>,
+        L: Language,
+        A: ForwardAnalysis<L, F>,
         F: Lattice
 {
     let mut fact_base = FnvHashMap::default();
@@ -93,10 +112,10 @@ pub fn forward_analysis<I, A, F>(analysis: &mut A, graph: &Graph<I>, entry: Labe
     fact_base
 }
 
-fn fixed_point_forward_graph<I, A, F>(analysis: &mut A, graph: &Graph<I>, entry: Label, fact_base: &mut FactBase<F>)
+fn fixed_point_forward_graph<L, A, F>(analysis: &mut A, graph: &Graph<L>, entry: Label, fact_base: &mut FactBase<F>)
     where
-        I: Instruction,
-        A: ForwardAnalysis<I, F>,
+        L: Language,
+        A: ForwardAnalysis<L, F>,
         F: Lattice
 {
     let mut to_visit = graph.post_order_traversal(entry);
@@ -107,53 +126,67 @@ fn fixed_point_forward_graph<I, A, F>(analysis: &mut A, graph: &Graph<I>, entry:
             continue;
         }
 
-        let output_fact = fixed_point_forward_block(analysis, &graph, label, fact_base);
+        let output_fact_base = fixed_point_forward_block(analysis, &graph, label, fact_base);
 
         for successor in graph[label].successors() {
-            let old_fact = fact_base.entry(*successor).or_insert_with(F::bottom);
+            let old_fact = fact_base.entry(successor).or_insert_with(F::bottom);
 
-            if !old_fact.join(&output_fact, *successor) {
+            if !old_fact.join(&output_fact_base[&successor], successor) {
                 // We didn't change so we don't need to re-examine this successor
                 continue;
             }
 
-            if !to_visit.contains(successor) {
-                to_visit.push(*successor);
+            if !to_visit.contains(&successor) {
+                to_visit.push(successor);
             }
         }
     }
 }
 
-fn fixed_point_forward_block<I, A, F>(analysis: &mut A, graph: &Graph<I>, label: Label, fact_base: &mut FactBase<F>) -> F
+fn fixed_point_forward_block<L, A, F>(analysis: &mut A, graph: &Graph<L>, label: Label, fact_base: &FactBase<F>) -> FactBase<F>
     where
-        I: Instruction,
-        A: ForwardAnalysis<I, F>,
+        L: Language,
+        A: ForwardAnalysis<L, F>,
         F: Lattice
 {
     let mut fact = fact_base.get(&label).expect("We should always have a fact to start from").clone();
-    let mut code = Vec::from(graph[label].code());
+    let mut block = graph[label].clone();
+
+    fact = analysis.analyze_entry(graph, label, &block.entry, fact);
+
     let mut index = 0;
-    while index < code.len() {
-        if let Some(rewrite) = analysis.analyze(graph, label, &code[index], Analyze::new(&mut fact)) {
-            match rewrite.rewrite {
-
-                // TODO: Might want to check that we are replacing these instructions
-                //  with those of the same kind! I.E. Not a label or jump when neither of those.
-                RewriteEnum::Single(inst) => {
-                    code[index] = inst;
+    loop {
+        while index < block.code.len() {
+            match analysis.analyze_instruction(graph, label, &block.code[index], AnalyzeInstruction::new(&mut fact)) {
+                Some(RewriteInstruction(RewriteInstructionEnum::Single(inst))) => {
+                    block.code[index] = inst;
                 }
-
-                RewriteEnum::Multiple(insts) => {
-                    code.splice(index..index + insts.len(), insts);
+                Some(RewriteInstruction(RewriteInstructionEnum::Multiple(insts))) => {
+                    block.code.splice(index..index + insts.len(), insts);
                 }
-
-                RewriteEnum::Graph(_jmp, _sub_graph, _cont) => {
+                Some(RewriteInstruction(RewriteInstructionEnum::Graph(_exit, _sub_graph, _entry))) => {
                     panic!("Unimplemented");
                 }
+                None => {
+                    index += 1;
+                }
             }
-        } else {
-            index += 1;
+        }
+
+        match analysis.analyze_exit(graph, label, &block.exit, &fact) {
+            RewriteExit::Done(facts) => {
+                return facts;
+            }
+            RewriteExit::Single(exit) => {
+                block.exit = exit;
+            }
+            RewriteExit::Extend(insts, exit) => {
+                block.code.extend(insts.into_iter());
+                block.exit = exit;
+            }
+            RewriteExit::Graph(_exit, _sub_graph, _entry) => {
+                panic!("Unimplemented");
+            }
         }
     }
-    fact
 }

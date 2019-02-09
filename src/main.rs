@@ -3,7 +3,7 @@ mod dataflow;
 mod test {
     use crate::dataflow::*;
     use std::collections::HashMap;
-
+    use fnv::FnvHashMap;
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
     struct Var(u16);
@@ -21,38 +21,58 @@ mod test {
 
     #[derive(Copy, Clone, Debug, Hash)]
     enum Cond {
-        EQ,
-        NEQ,
-        LT,
-        LTE,
+        Eq,
+        Neq,
+        Lt,
+        Lte,
     }
 
     #[derive(Copy, Clone, Debug, Hash)]
-    enum RISC {
-        Label(Label),
+    enum RiscEntry {
+        Label(Label)
+    }
+
+    #[derive(Copy, Clone, Debug, Hash)]
+    enum RiscInstruction {
         Load(Var, Constant),
         Arith(Arith, Var, Var, Var),
+
+    }
+
+    #[derive(Copy, Clone, Debug, Hash)]
+    enum RiscExit {
         Cond(Cond, Var, Var, Label, Label),
         Jump(Label),
         Ret,
     }
 
-    impl Instruction for RISC {
-        fn label(&self) -> Option<Label> {
+    impl Entry for RiscEntry {
+        fn label(&self) -> Label {
             match self {
-                RISC::Label(l) => Some(*l),
-                _ => None
+                RiscEntry::Label(l) => *l
             }
         }
+    }
 
-        fn successors(&self) -> Option<Vec<Label>> {
+    impl Instruction for RiscInstruction {}
+
+    impl Exit for RiscExit {
+        fn successors(&self) -> Vec<Label> {
             match self {
-                RISC::Cond(_, _, _, l1, l2) => Some(vec![*l1, *l2]),
-                RISC::Jump(l) => Some(vec![*l]),
-                RISC::Ret => Some(vec![]),
-                _ => None
+                RiscExit::Cond(_, _, _, l1, l2) => vec![*l1, *l2],
+                RiscExit::Jump(l) => vec![*l],
+                RiscExit::Ret => vec![]
             }
         }
+    }
+
+    #[derive(Clone)]
+    struct RiscLanguage;
+
+    impl Language for RiscLanguage {
+        type Entry = RiscEntry;
+        type Instruction = RiscInstruction;
+        type Exit = RiscExit;
     }
 
     #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -116,26 +136,35 @@ mod test {
 
     struct ConstantPropagation;
 
-    impl ForwardAnalysis<RISC, ConstFact> for ConstantPropagation {
-        fn analyze(&mut self,
-                   _graph: &Graph<RISC>,
-                   _label: Label,
-                   instruction: &RISC,
-                   analyze: Analyze<ConstFact>)
-                   -> Option<Rewrite<RISC>> {
+    impl ForwardAnalysis<RiscLanguage, ConstFact> for ConstantPropagation {
+        fn analyze_entry(
+            &mut self,
+            _graph: &Graph<RiscLanguage>,
+            _label: Label,
+            _entry: &RiscEntry,
+            fact: ConstFact)
+            -> ConstFact
+        {
+            fact
+        }
+
+        fn analyze_instruction(
+            &mut self,
+            _graph: &Graph<RiscLanguage>,
+            label: Label,
+            instruction: &RiscInstruction,
+            analyze: AnalyzeInstruction<ConstFact>)
+            -> Option<RewriteInstruction<RiscLanguage>>
+        {
             match instruction {
-                RISC::Label(_label) => {
-                    None
-                }
-                RISC::Load(var, constant) => {
+                RiscInstruction::Load(var, constant) => {
                     analyze.fact_mut().set(*var, *constant);
                     None
                 }
-                RISC::Arith(arith, dst, src1, src2) => {
+                RiscInstruction::Arith(arith, dst, src1, src2) => {
                     let facts = analyze.fact();
 
-                    if let (Some(Constant(c1)), Some(Constant(c2))) =
-                    (facts.get_const(*src1), facts.get_const(*src2)) {
+                    if let (Some(Constant(c1)), Some(Constant(c2))) = (facts.get_const(*src1), facts.get_const(*src2)) {
                         let result = match arith {
                             Arith::Add => c1 + c2,
                             Arith::Sub => c1 - c2,
@@ -143,19 +172,37 @@ mod test {
                             Arith::Or => c1 | c2
                         };
 
-                        return Some(analyze.replace_single(RISC::Load(*dst, Constant(result))));
+                        return Some(analyze.replace(RiscInstruction::Load(*dst, Constant(result))));
                     }
                     None
                 }
-                RISC::Cond(_cond, _src1, _src2, _l1, _l2) => {
-                    // For now...
-                    None
+            }
+        }
+
+        fn analyze_exit(
+            &mut self,
+            _graph: &Graph<RiscLanguage>,
+            label: Label,
+            exit: &RiscExit,
+            fact: &ConstFact)
+            -> RewriteExit<RiscLanguage, ConstFact>
+        {
+            let mut facts = FnvHashMap::default();
+
+            match exit {
+                RiscExit::Cond(_cond, _src1, _src2, l1, l2) => {
+                    facts.insert(*l1, fact.clone());
+                    facts.insert(*l2, fact.clone());
+
+                    RewriteExit::Done(facts)
                 }
-                RISC::Jump(_l1) => {
-                    None
+                RiscExit::Jump(l1) => {
+                    facts.insert(*l1, fact.clone());
+
+                    RewriteExit::Done(facts)
                 }
-                RISC::Ret => {
-                    None
+                RiscExit::Ret => {
+                    RewriteExit::Done(facts)
                 }
             }
         }
@@ -166,24 +213,30 @@ mod test {
         let entry = Label(0);
         let loop_body = Label(1);
         let exit = Label(2);
-        let block0 = Block::new(vec![
-            RISC::Label(entry),
-            RISC::Load(Var(0), Constant(0)),
-            RISC::Load(Var(1), Constant(1)),
-            RISC::Load(Var(2), Constant(5)),
-            RISC::Jump(loop_body)
-        ]).unwrap();
+        let block0 = BasicBlock::new(
+            RiscEntry::Label(entry),
+            vec![
+                RiscInstruction::Load(Var(0), Constant(0)),
+                RiscInstruction::Load(Var(1), Constant(1)),
+                RiscInstruction::Load(Var(2), Constant(5)),
+            ],
+            RiscExit::Jump(loop_body),
+        );
 
-        let block1 = Block::new(vec![
-            RISC::Label(loop_body),
-            RISC::Arith(Arith::Sub, Var(2), Var(2), Var(1)),
-            RISC::Cond(Cond::EQ, Var(2), Var(0), exit, loop_body)
-        ]).unwrap();
+        let block1 = BasicBlock::new(
+            RiscEntry::Label(loop_body),
+            vec![
+                RiscInstruction::Arith(Arith::Sub, Var(2), Var(2), Var(1))
+            ],
+            RiscExit::Cond(Cond::Eq, Var(2), Var(0), exit, loop_body),
+        );
 
-        let block2 = Block::new(vec![
-            RISC::Label(exit),
-            RISC::Ret
-        ]).unwrap();
+        let block2 = BasicBlock::new(
+            RiscEntry::Label(exit),
+            vec![]
+            ,
+            RiscExit::Ret,
+        );
 
         let graph = Graph::from_blocks(vec![block0, block1, block2]);
 
