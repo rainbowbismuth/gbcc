@@ -1,0 +1,8 @@
+[package]
+name = "gbcc"
+version = "0.1.0"
+authors = ["Emily Amanda Bellows <emily.a.bellows@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+fnv = "1.0.3"
