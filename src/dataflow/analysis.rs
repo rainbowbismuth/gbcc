@@ -1,10 +1,10 @@
 use fnv::FnvHashMap;
 
+use super::graph::{Graph, Label, Language};
 use super::lattice::Lattice;
-use super::graph::{Label, Language, Graph};
 
 pub struct AnalyzeInstruction<'a, F> {
-    fact: &'a mut F
+    fact: &'a mut F,
 }
 
 impl<'a, F> AnalyzeInstruction<'a, F> {
@@ -24,11 +24,19 @@ impl<'a, F> AnalyzeInstruction<'a, F> {
         RewriteInstruction(RewriteInstructionEnum::Single(instruction))
     }
 
-    pub fn replace_many<L: Language>(self, instructions: Vec<L::Instruction>) -> RewriteInstruction<L> {
+    pub fn replace_many<L: Language>(
+        self,
+        instructions: Vec<L::Instruction>,
+    ) -> RewriteInstruction<L> {
         RewriteInstruction(RewriteInstructionEnum::Multiple(instructions))
     }
 
-    pub fn replace_with_graph<L: Language>(self, exit: L::Exit, sub_graph: Graph<L>, entry: L::Entry) -> RewriteInstruction<L> {
+    pub fn replace_with_graph<L: Language>(
+        self,
+        exit: L::Exit,
+        sub_graph: Graph<L>,
+        entry: L::Entry,
+    ) -> RewriteInstruction<L> {
         RewriteInstruction(RewriteInstructionEnum::Graph(exit, sub_graph, entry))
     }
 }
@@ -69,40 +77,37 @@ pub enum RewriteExit<L: Language, F> {
 }
 
 pub trait ForwardAnalysis<L: Language, F> {
-    fn analyze_entry(
-        &mut self,
-        graph: &Graph<L>,
-        label: Label,
-        entry: &L::Entry,
-        fact: F)
-        -> F;
+    fn analyze_entry(&mut self, graph: &Graph<L>, label: Label, entry: &L::Entry, fact: F) -> F;
 
     fn analyze_instruction(
         &mut self,
         graph: &Graph<L>,
         label: Label,
         instruction: &L::Instruction,
-        analyze: AnalyzeInstruction<F>)
-        -> Option<RewriteInstruction<L>>;
+        analyze: AnalyzeInstruction<F>,
+    ) -> Option<RewriteInstruction<L>>;
 
     fn analyze_exit(
         &mut self,
         graph: &Graph<L>,
         label: Label,
         exit: &L::Exit,
-        fact: &F)
-        -> RewriteExit<L, F>;
+        fact: &F,
+    ) -> RewriteExit<L, F>;
 }
-
 
 pub type FactBase<F> = FnvHashMap<Label, F>;
 
-
-pub fn forward_analysis<L, A, F>(analysis: &mut A, graph: &Graph<L>, entry: Label, entry_fact: F) -> FactBase<F>
-    where
-        L: Language,
-        A: ForwardAnalysis<L, F>,
-        F: Lattice
+pub fn forward_analysis<L, A, F>(
+    analysis: &mut A,
+    graph: &Graph<L>,
+    entry: Label,
+    entry_fact: F,
+) -> FactBase<F>
+where
+    L: Language,
+    A: ForwardAnalysis<L, F>,
+    F: Lattice,
 {
     let mut fact_base = FnvHashMap::default();
     fact_base.insert(entry, entry_fact);
@@ -112,11 +117,15 @@ pub fn forward_analysis<L, A, F>(analysis: &mut A, graph: &Graph<L>, entry: Labe
     fact_base
 }
 
-fn fixed_point_forward_graph<L, A, F>(analysis: &mut A, graph: &Graph<L>, entry: Label, fact_base: &mut FactBase<F>)
-    where
-        L: Language,
-        A: ForwardAnalysis<L, F>,
-        F: Lattice
+fn fixed_point_forward_graph<L, A, F>(
+    analysis: &mut A,
+    graph: &Graph<L>,
+    entry: Label,
+    fact_base: &mut FactBase<F>,
+) where
+    L: Language,
+    A: ForwardAnalysis<L, F>,
+    F: Lattice,
 {
     let mut to_visit = graph.post_order_traversal(entry);
 
@@ -143,13 +152,21 @@ fn fixed_point_forward_graph<L, A, F>(analysis: &mut A, graph: &Graph<L>, entry:
     }
 }
 
-fn fixed_point_forward_block<L, A, F>(analysis: &mut A, graph: &Graph<L>, label: Label, fact_base: &FactBase<F>) -> FactBase<F>
-    where
-        L: Language,
-        A: ForwardAnalysis<L, F>,
-        F: Lattice
+fn fixed_point_forward_block<L, A, F>(
+    analysis: &mut A,
+    graph: &Graph<L>,
+    label: Label,
+    fact_base: &FactBase<F>,
+) -> FactBase<F>
+where
+    L: Language,
+    A: ForwardAnalysis<L, F>,
+    F: Lattice,
 {
-    let mut fact = fact_base.get(&label).expect("We should always have a fact to start from").clone();
+    let mut fact = fact_base
+        .get(&label)
+        .expect("We should always have a fact to start from")
+        .clone();
     let mut block = graph[label].clone();
 
     fact = analysis.analyze_entry(graph, label, &block.entry, fact);
@@ -157,14 +174,23 @@ fn fixed_point_forward_block<L, A, F>(analysis: &mut A, graph: &Graph<L>, label:
     let mut index = 0;
     loop {
         while index < block.code.len() {
-            match analysis.analyze_instruction(graph, label, &block.code[index], AnalyzeInstruction::new(&mut fact)) {
+            match analysis.analyze_instruction(
+                graph,
+                label,
+                &block.code[index],
+                AnalyzeInstruction::new(&mut fact),
+            ) {
                 Some(RewriteInstruction(RewriteInstructionEnum::Single(inst))) => {
                     block.code[index] = inst;
                 }
                 Some(RewriteInstruction(RewriteInstructionEnum::Multiple(insts))) => {
                     block.code.splice(index..index + insts.len(), insts);
                 }
-                Some(RewriteInstruction(RewriteInstructionEnum::Graph(_exit, _sub_graph, _entry))) => {
+                Some(RewriteInstruction(RewriteInstructionEnum::Graph(
+                    _exit,
+                    _sub_graph,
+                    _entry,
+                ))) => {
                     panic!("Unimplemented");
                 }
                 None => {

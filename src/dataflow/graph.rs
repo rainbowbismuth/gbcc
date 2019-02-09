@@ -22,7 +22,6 @@ pub trait Language: Clone {
     type Exit: Exit;
 }
 
-
 #[derive(Clone)]
 pub struct BasicBlock<L: Language> {
     pub entry: L::Entry,
@@ -44,7 +43,6 @@ impl<L: Language> BasicBlock<L> {
     }
 }
 
-
 #[derive(Clone)]
 pub struct Graph<L: Language> {
     blocks: FnvHashMap<Label, BasicBlock<L>>,
@@ -61,7 +59,12 @@ impl<L: Language> Graph<L> {
     }
 
     pub fn post_order_traversal(&self, entry: Label) -> Vec<Label> {
-        fn go<L: Language>(graph: &Graph<L>, output: &mut Vec<Label>, visited: &mut FnvHashSet<Label>, label: Label) {
+        fn go<L: Language>(
+            graph: &Graph<L>,
+            output: &mut Vec<Label>,
+            visited: &mut FnvHashSet<Label>,
+            label: Label,
+        ) {
             if !visited.insert(label) {
                 return;
             }

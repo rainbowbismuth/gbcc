@@ -2,8 +2,8 @@ mod dataflow;
 
 mod test {
     use crate::dataflow::*;
-    use std::collections::HashMap;
     use fnv::FnvHashMap;
+    use std::collections::HashMap;
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
     struct Var(u16);
@@ -29,14 +29,13 @@ mod test {
 
     #[derive(Copy, Clone, Debug, Hash)]
     enum RiscEntry {
-        Label(Label)
+        Label(Label),
     }
 
     #[derive(Copy, Clone, Debug, Hash)]
     enum RiscInstruction {
         Load(Var, Constant),
         Arith(Arith, Var, Var, Var),
-
     }
 
     #[derive(Copy, Clone, Debug, Hash)]
@@ -49,7 +48,7 @@ mod test {
     impl Entry for RiscEntry {
         fn label(&self) -> Label {
             match self {
-                RiscEntry::Label(l) => *l
+                RiscEntry::Label(l) => *l,
             }
         }
     }
@@ -61,7 +60,7 @@ mod test {
             match self {
                 RiscExit::Cond(_, _, _, l1, l2) => vec![*l1, *l2],
                 RiscExit::Jump(l) => vec![*l],
-                RiscExit::Ret => vec![]
+                RiscExit::Ret => vec![],
             }
         }
     }
@@ -83,12 +82,14 @@ mod test {
 
     #[derive(Clone, Debug)]
     struct ConstFact {
-        vars: HashMap<Var, WithTop<Constant>>
+        vars: HashMap<Var, WithTop<Constant>>,
     }
 
     impl ConstFact {
         fn new() -> ConstFact {
-            ConstFact { vars: HashMap::new() }
+            ConstFact {
+                vars: HashMap::new(),
+            }
         }
 
         fn set(&mut self, var: Var, constant: Constant) {
@@ -102,7 +103,7 @@ mod test {
         fn get_const(&self, var: Var) -> Option<Constant> {
             match self.vars.get(&var) {
                 Some(WithTop::Elem(c)) => Some(*c),
-                _ => None
+                _ => None,
             }
         }
     }
@@ -119,9 +120,14 @@ mod test {
                 let new = match (old, v) {
                     (Some(WithTop::Top), _) => WithTop::Top,
                     (_, WithTop::Top) => WithTop::Top,
-                    (Some(WithTop::Elem(x)), WithTop::Elem(y)) =>
-                        if x == *y { WithTop::Elem(x) } else { WithTop::Top },
-                    (None, anything) => *anything
+                    (Some(WithTop::Elem(x)), WithTop::Elem(y)) => {
+                        if x == *y {
+                            WithTop::Elem(x)
+                        } else {
+                            WithTop::Top
+                        }
+                    }
+                    (None, anything) => *anything,
                 };
 
                 if old != Some(new) {
@@ -142,9 +148,8 @@ mod test {
             _graph: &Graph<RiscLanguage>,
             _label: Label,
             _entry: &RiscEntry,
-            fact: ConstFact)
-            -> ConstFact
-        {
+            fact: ConstFact,
+        ) -> ConstFact {
             fact
         }
 
@@ -153,9 +158,8 @@ mod test {
             _graph: &Graph<RiscLanguage>,
             label: Label,
             instruction: &RiscInstruction,
-            analyze: AnalyzeInstruction<ConstFact>)
-            -> Option<RewriteInstruction<RiscLanguage>>
-        {
+            analyze: AnalyzeInstruction<ConstFact>,
+        ) -> Option<RewriteInstruction<RiscLanguage>> {
             match instruction {
                 RiscInstruction::Load(var, constant) => {
                     analyze.fact_mut().set(*var, *constant);
@@ -164,12 +168,14 @@ mod test {
                 RiscInstruction::Arith(arith, dst, src1, src2) => {
                     let facts = analyze.fact();
 
-                    if let (Some(Constant(c1)), Some(Constant(c2))) = (facts.get_const(*src1), facts.get_const(*src2)) {
+                    if let (Some(Constant(c1)), Some(Constant(c2))) =
+                        (facts.get_const(*src1), facts.get_const(*src2))
+                    {
                         let result = match arith {
                             Arith::Add => c1 + c2,
                             Arith::Sub => c1 - c2,
                             Arith::And => c1 & c2,
-                            Arith::Or => c1 | c2
+                            Arith::Or => c1 | c2,
                         };
 
                         return Some(analyze.replace(RiscInstruction::Load(*dst, Constant(result))));
@@ -184,9 +190,8 @@ mod test {
             _graph: &Graph<RiscLanguage>,
             label: Label,
             exit: &RiscExit,
-            fact: &ConstFact)
-            -> RewriteExit<RiscLanguage, ConstFact>
-        {
+            fact: &ConstFact,
+        ) -> RewriteExit<RiscLanguage, ConstFact> {
             let mut facts = FnvHashMap::default();
 
             match exit {
@@ -201,9 +206,7 @@ mod test {
 
                     RewriteExit::Done(facts)
                 }
-                RiscExit::Ret => {
-                    RewriteExit::Done(facts)
-                }
+                RiscExit::Ret => RewriteExit::Done(facts),
             }
         }
     }
@@ -225,18 +228,11 @@ mod test {
 
         let block1 = BasicBlock::new(
             RiscEntry::Label(loop_body),
-            vec![
-                RiscInstruction::Arith(Arith::Sub, Var(2), Var(2), Var(1))
-            ],
+            vec![RiscInstruction::Arith(Arith::Sub, Var(2), Var(2), Var(1))],
             RiscExit::Cond(Cond::Eq, Var(2), Var(0), exit, loop_body),
         );
 
-        let block2 = BasicBlock::new(
-            RiscEntry::Label(exit),
-            vec![]
-            ,
-            RiscExit::Ret,
-        );
+        let block2 = BasicBlock::new(RiscEntry::Label(exit), vec![], RiscExit::Ret);
 
         let graph = Graph::from_blocks(vec![block0, block1, block2]);
 

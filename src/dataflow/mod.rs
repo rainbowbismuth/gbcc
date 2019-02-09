@@ -2,6 +2,9 @@ mod analysis;
 mod graph;
 mod lattice;
 
-pub use analysis::{AnalyzeInstruction, RewriteInstruction, RewriteExit, FactBase, ForwardAnalysis, forward_analysis};
-pub use graph::{Label, Entry, Instruction, Exit, Language, BasicBlock, Graph};
+pub use analysis::{
+    forward_analysis, AnalyzeInstruction, FactBase, ForwardAnalysis, RewriteExit,
+    RewriteInstruction,
+};
+pub use graph::{BasicBlock, Entry, Exit, Graph, Instruction, Label, Language};
 pub use lattice::Lattice;
