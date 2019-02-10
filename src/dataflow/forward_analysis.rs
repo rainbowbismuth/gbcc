@@ -1,5 +1,6 @@
 use fnv::FnvHashMap;
 
+use super::fact_base::FactBase;
 use super::graph::{Exit, Graph, Label, Language};
 use super::lattice::Lattice;
 
@@ -70,10 +71,9 @@ pub enum RewriteExit<L: Language, F> {
     Extend(Vec<L::Instruction>, L::Exit),
 
     // Replace this current instruction with a sub-graph.
-    //   The first argument is the 'jump' that is going to replace the current instruction.
+    //   The first argument is the 'jump' that is going to replace the current exit.
     //   The second argument is a graph with the label that the first argument instruction jumps into.
-    //   The final argument is a label instruction that will head the rest of the block.
-    Graph(L::Exit, Graph<L>, L::Entry),
+    Graph(L::Exit, Graph<L>),
 }
 
 pub trait ForwardAnalysis<L: Language, F> {
@@ -95,8 +95,6 @@ pub trait ForwardAnalysis<L: Language, F> {
         fact: &F,
     ) -> RewriteExit<L, F>;
 }
-
-pub type FactBase<F> = FnvHashMap<Label, F>;
 
 pub fn distribute_facts<L: Language, F: Clone>(exit: &L::Exit, fact: &F) -> FactBase<F> {
     let mut fact_base = FnvHashMap::default();
@@ -218,7 +216,7 @@ where
                 block.code.extend(insts.into_iter());
                 block.exit = exit;
             }
-            RewriteExit::Graph(_exit, _sub_graph, _entry) => {
+            RewriteExit::Graph(_exit, _sub_graph) => {
                 panic!("Unimplemented");
             }
         }
