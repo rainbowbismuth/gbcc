@@ -1,6 +1,8 @@
 mod dataflow;
 
+#[cfg(test)]
 mod test {
+    use crate::dataflow::dominator;
     use crate::dataflow::*;
     use fnv::FnvHashMap;
     use std::collections::HashMap;
@@ -212,10 +214,11 @@ mod test {
     }
 
     #[test]
-    fn analysis_test() {
+    fn constant_test() {
         let entry = Label(0);
         let loop_body = Label(1);
         let exit = Label(2);
+
         let block0 = BasicBlock::new(
             RiscEntry::Label(entry),
             vec![
@@ -236,12 +239,58 @@ mod test {
 
         let graph = Graph::from_blocks(vec![block0, block1, block2]);
 
-        // Strictly speaking, we'd want an entry fact that had all vars as Top..
-        let entry_fact = ConstFact::bottom();
         let mut analysis = ConstantPropagation;
-
-        let fact_base = forward_analysis(&mut analysis, &graph, entry, entry_fact);
+        // Strictly speaking, we'd want an entry fact that had all vars as Top..
+        let fact_base = forward_analysis(&mut analysis, &graph, entry, ConstFact::bottom());
         println!("{:?}", fact_base);
+    }
+
+    #[test]
+    fn dominator_test() {
+        let block1: BasicBlock<RiscLanguage> =
+            BasicBlock::new(RiscEntry::Label(Label(1)), vec![], RiscExit::Jump(Label(2)));
+
+        let block2: BasicBlock<RiscLanguage> = BasicBlock::new(
+            RiscEntry::Label(Label(2)),
+            vec![],
+            RiscExit::Cond(Cond::Eq, Var(0), Var(1), Label(3), Label(4)),
+        );
+
+        let block3: BasicBlock<RiscLanguage> =
+            BasicBlock::new(RiscEntry::Label(Label(3)), vec![], RiscExit::Jump(Label(5)));
+
+        let block4: BasicBlock<RiscLanguage> =
+            BasicBlock::new(RiscEntry::Label(Label(4)), vec![], RiscExit::Jump(Label(5)));
+
+        let block5: BasicBlock<RiscLanguage> =
+            BasicBlock::new(RiscEntry::Label(Label(5)), vec![], RiscExit::Jump(Label(2)));
+        let graph = Graph::from_blocks(vec![block1, block2, block3, block4, block5]);
+
+        let mut dom_analysis = dominator::DominatorAnalysis;
+        let dominators = forward_analysis(
+            &mut dom_analysis,
+            &graph,
+            Label(1),
+            dominator::DominatorFact::bottom(),
+        );
+
+        println!("dominators {{");
+        for (label, dom) in dominators {
+            print!("\t{}: ", label.0);
+            if let Some(labels) = dom.dominates {
+                println!(
+                    "{}",
+                    labels
+                        .iter()
+                        .map(|l| l.0.to_string())
+                        .collect::<Vec<String>>()
+                        .join(" -> ")
+                );
+            } else {
+                println!("None");
+            }
+        }
+        println!("}}");
     }
 }
 

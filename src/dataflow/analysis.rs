@@ -1,6 +1,6 @@
 use fnv::FnvHashMap;
 
-use super::graph::{Graph, Label, Language};
+use super::graph::{Exit, Graph, Label, Language};
 use super::lattice::Lattice;
 
 pub struct AnalyzeInstruction<'a, F> {
@@ -97,6 +97,14 @@ pub trait ForwardAnalysis<L: Language, F> {
 }
 
 pub type FactBase<F> = FnvHashMap<Label, F>;
+
+pub fn distribute_facts<L: Language, F: Clone>(exit: &L::Exit, fact: &F) -> FactBase<F> {
+    let mut fact_base = FnvHashMap::default();
+    for successor in exit.successors() {
+        fact_base.insert(successor, fact.clone());
+    }
+    fact_base
+}
 
 pub fn forward_analysis<L, A, F>(
     analysis: &mut A,

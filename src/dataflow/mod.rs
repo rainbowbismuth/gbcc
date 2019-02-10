@@ -1,4 +1,5 @@
 mod analysis;
+pub mod dominator;
 mod graph;
 mod lattice;
 
