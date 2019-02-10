@@ -122,8 +122,8 @@ struct ConstAnalysis;
 impl Analysis<Risc, ConstFact> for ConstAnalysis {
     fn analyze(
         &mut self,
-        graph: &Graph<Risc>,
-        label: Label,
+        _graph: &Graph<Risc>,
+        _label: Label,
         instruction: &Risc,
         fact: &ConstFact,
     ) -> Rewrite<Risc, ConstFact> {
@@ -138,10 +138,10 @@ impl Analysis<Risc, ConstFact> for ConstAnalysis {
                 *src2,
                 |a, b| if a < b { 1 } else { 0 },
             ))),
-            Risc::Goto(l) => Rewrite::Fact(fact.clone()),
-            Risc::JumpZ(src, l) => Rewrite::Fact(fact.clone()),
-            Risc::NoOp => Rewrite::Fact(fact.clone()),
-            Risc::Ret => Rewrite::Fact(fact.clone()),
+            Risc::Goto(_l) => Rewrite::NoChange,
+            Risc::JumpZ(_src, _l) => Rewrite::NoChange,
+            Risc::NoOp => Rewrite::NoChange,
+            Risc::Ret => Rewrite::NoChange,
         }
     }
 }

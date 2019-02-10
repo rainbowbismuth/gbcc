@@ -153,6 +153,7 @@ pub trait Lattice: Sized + Clone {
 
 // Not handling the FactBase case yet for jumps...
 pub enum Rewrite<I, F> {
+    NoChange,
     Fact(F),
     Single(I),
     Many(Vec<I>),
@@ -172,7 +173,9 @@ where
     ) -> Rewrite<I, F>;
 }
 
-type FactBase<F> = FnvHashMap<Label, F>;
+use std::cell::RefCell;
+
+type FactBase<F> = FnvHashMap<Label, RefCell<F>>;
 
 pub fn forward_analyze<A, I, F>(analysis: &mut A, graph: &Graph<I>) -> FactBase<F>
 where
@@ -181,7 +184,7 @@ where
     F: Lattice,
 {
     let mut fact_base = FnvHashMap::default();
-    fact_base.insert(ENTRY, F::top());
+    fact_base.insert(ENTRY, RefCell::new(F::top()));
 
     let mut working_set = FnvHashSet::default();
     working_set.insert(ENTRY);
@@ -195,18 +198,32 @@ where
             let instruction = graph.get_instruction(pc);
             let fact = fact_base
                 .get(&pc)
-                .expect("we should always have a fact for our current pc");
+                .expect("we should always have a fact for our current pc")
+                .borrow();
 
             match analysis.analyze(graph, pc, &instruction, &fact) {
-                Rewrite::Fact(new_fact) => {
+                Rewrite::NoChange => {
+                    drop(fact);
                     let mut successors = instruction.successors(graph, pc);
                     successors.reverse();
 
                     let mut need_new_pc = false;
 
                     if let Some(left) = successors.pop() {
-                        let old_fact = fact_base.entry(left).or_insert_with(F::bottom);
-                        if old_fact.join(&new_fact, left) {
+                        fact_base
+                            .entry(left)
+                            .or_insert_with(|| RefCell::new(F::bottom()));
+
+                        let old_fact = fact_base.get(&left).expect("we just inserted a new entry");
+
+                        let fact = fact_base
+                            .get(&pc)
+                            .expect("we should always have a fact for our current pc");
+
+                        // As you can see, like down below, we are relying on the idea that
+                        // an instruction is never going to loop back directly on itself,
+                        // so that the old & new facts are disjoint.
+                        if old_fact.borrow_mut().join(&fact.borrow(), left) {
                             pc = left;
                         } else {
                             need_new_pc = true;
@@ -216,8 +233,53 @@ where
                     }
 
                     for successor in successors {
-                        let old_fact = fact_base.entry(successor).or_insert_with(F::bottom);
-                        if old_fact.join(&new_fact, successor) && successor != pc {
+                        fact_base
+                            .entry(successor)
+                            .or_insert_with(|| RefCell::new(F::bottom()));
+
+                        let old_fact = fact_base
+                            .get(&successor)
+                            .expect("we just inserted a new entry");
+
+                        let fact = fact_base
+                            .get(&pc)
+                            .expect("we should always have a fact for our current pc");
+
+                        if old_fact.borrow_mut().join(&fact.borrow(), successor) && successor != pc
+                        {
+                            working_set.insert(successor);
+                        }
+                    }
+
+                    if need_new_pc {
+                        break 'path;
+                    }
+                }
+                Rewrite::Fact(new_fact) => {
+                    drop(fact);
+                    let mut successors = instruction.successors(graph, pc);
+                    successors.reverse();
+
+                    let mut need_new_pc = false;
+
+                    if let Some(left) = successors.pop() {
+                        let old_fact = fact_base
+                            .entry(left)
+                            .or_insert_with(|| RefCell::new(F::bottom()));
+                        if old_fact.get_mut().join(&new_fact, left) {
+                            pc = left;
+                        } else {
+                            need_new_pc = true;
+                        }
+                    } else {
+                        break 'path;
+                    }
+
+                    for successor in successors {
+                        let old_fact = fact_base
+                            .entry(successor)
+                            .or_insert_with(|| RefCell::new(F::bottom()));
+                        if old_fact.get_mut().join(&new_fact, successor) && successor != pc {
                             working_set.insert(successor);
                         }
                     }
