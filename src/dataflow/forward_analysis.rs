@@ -190,7 +190,7 @@ where
                     block.code[index] = inst;
                 }
                 Some(RewriteInstruction(RewriteInstructionEnum::Multiple(insts))) => {
-                    block.code.splice(index..index + insts.len(), insts);
+                    block.code.splice(index..index + 1, insts);
                 }
                 Some(RewriteInstruction(RewriteInstructionEnum::Graph(
                     _exit,

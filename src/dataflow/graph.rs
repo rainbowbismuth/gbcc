@@ -90,6 +90,18 @@ impl<L: Language> Graph<L> {
     pub fn contains(&self, label: Label) -> bool {
         self.blocks.contains_key(&label)
     }
+
+    pub fn direct_predecessors(&self, label: Label) -> Vec<Label> {
+        let mut output = vec![];
+        for (label, block) in &self.blocks {
+            for successor in block.successors() {
+                if successor == *label {
+                    output.push(*label);
+                }
+            }
+        }
+        output
+    }
 }
 
 impl<L: Language> Index<Label> for Graph<L> {
