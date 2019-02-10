@@ -276,19 +276,7 @@ mod test {
 
         println!("dominators {{");
         for (label, dom) in dominators {
-            print!("\t{}: ", label.0);
-            if let Some(labels) = dom.dominates {
-                println!(
-                    "{}",
-                    labels
-                        .iter()
-                        .map(|l| l.0.to_string())
-                        .collect::<Vec<String>>()
-                        .join(" -> ")
-                );
-            } else {
-                println!("None");
-            }
+            println!("\t{:?}: {:?}", label, dom.dominates);
         }
         println!("}}");
     }

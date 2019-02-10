@@ -1,10 +1,17 @@
 use fnv::{FnvHashMap, FnvHashSet};
 
+use std::fmt;
 use std::ops::Index;
 
 // A label is an unsigned integer, used to identify a block.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Label(pub u32);
+
+impl fmt::Debug for Label {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "L{}", self.0)
+    }
+}
 
 pub trait Entry: Clone {
     fn label(&self) -> Label;
