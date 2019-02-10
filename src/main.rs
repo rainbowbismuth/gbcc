@@ -1,4 +1,5 @@
 mod dataflow;
+mod pc;
 
 #[cfg(test)]
 mod test {
