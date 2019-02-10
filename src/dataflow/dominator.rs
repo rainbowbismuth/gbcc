@@ -1,5 +1,3 @@
-use fnv::FnvHashSet;
-
 use super::forward_analysis::*;
 use super::graph::{Entry, Graph, Label, Language};
 use super::lattice::Lattice;
