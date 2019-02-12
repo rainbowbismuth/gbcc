@@ -1,5 +1,7 @@
 use fnv::FnvHashSet;
 
+mod dominator;
+
 #[cfg(test)]
 mod test;
 
@@ -206,9 +208,9 @@ pub enum Rewrite<I, F> {
 }
 
 pub trait Analysis<I, F>
-    where
-        I: Instruction,
-        F: Lattice,
+where
+    I: Instruction,
+    F: Lattice,
 {
     fn analyze(
         &mut self,
@@ -278,10 +280,10 @@ impl<F: Lattice> FactBase<F> {
 }
 
 pub fn forward_analyze<A, I, F>(analysis: &mut A, graph: &Graph<I>) -> FactBase<F>
-    where
-        A: Analysis<I, F>,
-        I: Instruction,
-        F: Lattice,
+where
+    A: Analysis<I, F>,
+    I: Instruction,
+    F: Lattice,
 {
     let mut fact_base = FactBase::new(graph);
     *fact_base.get_mut(ENTRY).unwrap() = F::top();

@@ -171,4 +171,10 @@ fn constant_prop() {
     let fact_base = forward_analyze(&mut analysis, &graph);
 
     println!("{:?}", fact_base);
+
+    use super::dominator::*;
+    let mut dom_analysis = DominatorAnalysis;
+    let dom_fact_base = forward_analyze(&mut dom_analysis, &graph);
+
+    println!("{:#?}", dom_fact_base);
 }
