@@ -1,12 +1,19 @@
 use fnv::{FnvHashMap, FnvHashSet};
+use std::cell::RefCell;
 
 #[cfg(test)]
 mod test;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Label {
     sub_graph: u32,
     index: u32,
+}
+
+impl std::fmt::Debug for Label {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "L.{:04x}.{:04x}", self.sub_graph, self.index)
+    }
 }
 
 impl Label {
@@ -23,8 +30,45 @@ impl Label {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct Successors {
+    pub fallthrough: bool,
+    pub jumps: Vec<Label>,
+}
+
+impl Successors {
+    pub fn fallthrough() -> Successors {
+        Successors {
+            fallthrough: true,
+            jumps: vec![],
+        }
+    }
+
+    pub fn conditional(jumps: Vec<Label>) -> Successors {
+        Successors {
+            fallthrough: true,
+            jumps,
+        }
+    }
+
+    pub fn halt() -> Successors {
+        Successors {
+            fallthrough: false,
+            jumps: vec![],
+        }
+    }
+
+    pub fn goto(jumps: Vec<Label>) -> Successors {
+        Successors {
+            fallthrough: false,
+            jumps,
+        }
+    }
+}
+
+// TODO: We might want some sort of... optional context passed in?
 pub trait Instruction: Clone {
-    fn successors(&self, graph: &Graph<Self>, pc: Label) -> Vec<Label>;
+    fn successors(&self) -> Successors;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,6 +92,8 @@ const ENTRY: Label = Label {
     index: 0,
 };
 
+const LABEL_FORWARD_LIMIT: usize = 10_000;
+
 impl<I: Instruction> Graph<I> {
     fn new(code: Vec<I>) -> Self {
         let nodes = code.into_iter().map(Node::new).collect();
@@ -65,13 +111,14 @@ impl<I: Instruction> Graph<I> {
     }
 
     fn forward_label_completely(&self, mut label: Label) -> Label {
-        for _ in 0..1000 {
+        for _ in 0..LABEL_FORWARD_LIMIT {
             let (new_label, cont) = self.forward_label(label);
             if !cont {
                 return new_label;
             }
             label = new_label;
         }
+
         panic!("sub graph loop detected");
     }
 
@@ -173,8 +220,6 @@ where
     ) -> Rewrite<I, F>;
 }
 
-use std::cell::RefCell;
-
 type FactBase<F> = FnvHashMap<Label, RefCell<F>>;
 
 pub fn forward_analyze<A, I, F>(analysis: &mut A, graph: &Graph<I>) -> FactBase<F>
@@ -204,12 +249,12 @@ where
             match analysis.analyze(graph, pc, &instruction, &fact) {
                 Rewrite::NoChange => {
                     drop(fact);
-                    let mut successors = instruction.successors(graph, pc);
-                    successors.reverse();
+                    let successors = instruction.successors();
 
-                    let mut need_new_pc = false;
+                    let mut need_new_pc = !successors.fallthrough;
 
-                    if let Some(left) = successors.pop() {
+                    if successors.fallthrough {
+                        let left = graph.next_pc(pc);
                         fact_base
                             .entry(left)
                             .or_insert_with(|| RefCell::new(F::bottom()));
@@ -228,11 +273,9 @@ where
                         } else {
                             need_new_pc = true;
                         }
-                    } else {
-                        break 'path;
                     }
 
-                    for successor in successors {
+                    for successor in successors.jumps {
                         fact_base
                             .entry(successor)
                             .or_insert_with(|| RefCell::new(F::bottom()));
@@ -257,12 +300,12 @@ where
                 }
                 Rewrite::Fact(new_fact) => {
                     drop(fact);
-                    let mut successors = instruction.successors(graph, pc);
-                    successors.reverse();
+                    let successors = instruction.successors();
+                    let mut need_new_pc = !successors.fallthrough;
 
-                    let mut need_new_pc = false;
+                    if successors.fallthrough {
+                        let left = graph.next_pc(pc);
 
-                    if let Some(left) = successors.pop() {
                         let old_fact = fact_base
                             .entry(left)
                             .or_insert_with(|| RefCell::new(F::bottom()));
@@ -271,11 +314,9 @@ where
                         } else {
                             need_new_pc = true;
                         }
-                    } else {
-                        break 'path;
                     }
 
-                    for successor in successors {
+                    for successor in successors.jumps {
                         let old_fact = fact_base
                             .entry(successor)
                             .or_insert_with(|| RefCell::new(F::bottom()));

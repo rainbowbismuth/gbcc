@@ -29,15 +29,15 @@ enum Risc {
 }
 
 impl Instruction for Risc {
-    fn successors(&self, graph: &Graph<Risc>, pc: Label) -> Vec<Label> {
+    fn successors(&self) -> Successors {
         match self {
-            Risc::Load(_, _) => vec![graph.next_pc(pc)],
-            Risc::Add(_, _, _) => vec![graph.next_pc(pc)],
-            Risc::Lt(_, _, _) => vec![graph.next_pc(pc)],
-            Risc::Goto(l) => vec![*l],
-            Risc::JumpZ(_, l) => vec![graph.next_pc(pc), *l],
-            Risc::NoOp => vec![graph.next_pc(pc)],
-            Risc::Ret => vec![],
+            Risc::Load(_, _) => Successors::fallthrough(),
+            Risc::Add(_, _, _) => Successors::fallthrough(),
+            Risc::Lt(_, _, _) => Successors::fallthrough(),
+            Risc::Goto(l) => Successors::goto(vec![*l]),
+            Risc::JumpZ(_, l) => Successors::conditional(vec![*l]),
+            Risc::NoOp => Successors::fallthrough(),
+            Risc::Ret => Successors::halt(),
         }
     }
 }
