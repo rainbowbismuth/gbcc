@@ -1,5 +1,4 @@
-use fnv::{FnvHashMap, FnvHashSet};
-use std::cell::RefCell;
+use fnv::FnvHashSet;
 
 #[cfg(test)]
 mod test;
@@ -207,9 +206,9 @@ pub enum Rewrite<I, F> {
 }
 
 pub trait Analysis<I, F>
-where
-    I: Instruction,
-    F: Lattice,
+    where
+        I: Instruction,
+        F: Lattice,
 {
     fn analyze(
         &mut self,
@@ -226,7 +225,7 @@ pub struct FactBase<F> {
     facts: Vec<Vec<F>>,
 }
 
-fn mut_two<T>(items: &mut [T], first_index: usize, second_index: usize) -> (&mut T, &T) {
+fn index_two<T>(items: &mut [T], first_index: usize, second_index: usize) -> (&mut T, &T) {
     let split_at_index = first_index.max(second_index);
     let (first_slice, second_slice) = items.split_at_mut(split_at_index);
     if first_index < second_index {
@@ -267,9 +266,9 @@ impl<F: Lattice> FactBase<F> {
             if first.index() >= sub_graph_facts.len() || second.index() >= sub_graph_facts.len() {
                 return None;
             }
-            return Some(mut_two(sub_graph_facts, first.index(), second.index()));
+            return Some(index_two(sub_graph_facts, first.index(), second.index()));
         } else {
-            let (left, right) = mut_two(&mut self.facts, first.sub_graph(), second.sub_graph());
+            let (left, right) = index_two(&mut self.facts, first.sub_graph(), second.sub_graph());
             if first.index() >= left.len() || second.index() >= right.len() {
                 return None;
             }
@@ -279,10 +278,10 @@ impl<F: Lattice> FactBase<F> {
 }
 
 pub fn forward_analyze<A, I, F>(analysis: &mut A, graph: &Graph<I>) -> FactBase<F>
-where
-    A: Analysis<I, F>,
-    I: Instruction,
-    F: Lattice,
+    where
+        A: Analysis<I, F>,
+        I: Instruction,
+        F: Lattice,
 {
     let mut fact_base = FactBase::new(graph);
     *fact_base.get_mut(ENTRY).unwrap() = F::top();
