@@ -90,7 +90,6 @@ impl Lattice for ConstFact {
 
     fn join(&mut self, other: &Self, label: Label) -> bool {
         let mut changed = false;
-
         for (key, val) in &other.vars {
             match self.vars.get(&key) {
                 Some(Some(c)) => {
@@ -160,6 +159,10 @@ fn constant_prop() {
         /* 06 */ Risc::Add(Var(0), Var(0), Var(4)),
         /* 07 */ Risc::Goto(Label::new(0, 0x03)),
         /* 08 */ Risc::Ret,
+        // FIXME: This is super hack-y, but basically we are always looking up a label one past the
+        //  end at the moment.
+        /* 09 */
+        Risc::NoOp,
     ];
 
     let graph = Graph::new(code);

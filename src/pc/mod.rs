@@ -220,7 +220,63 @@ where
     ) -> Rewrite<I, F>;
 }
 
-type FactBase<F> = FnvHashMap<Label, RefCell<F>>;
+#[derive(Clone, Debug)]
+pub struct FactBase<F> {
+    // Like a Graph, there's a sub_graph vector and then a fact per instruction.
+    facts: Vec<Vec<F>>,
+}
+
+fn mut_two<T>(items: &mut [T], first_index: usize, second_index: usize) -> (&mut T, &T) {
+    let split_at_index = first_index.max(second_index);
+    let (first_slice, second_slice) = items.split_at_mut(split_at_index);
+    if first_index < second_index {
+        (&mut first_slice[first_index], &mut second_slice[0])
+    } else {
+        (&mut second_slice[0], &mut first_slice[second_index])
+    }
+}
+
+impl<F: Lattice> FactBase<F> {
+    pub fn new<I: Instruction>(graph: &Graph<I>) -> FactBase<F> {
+        let facts: Vec<Vec<F>> = graph
+            .sub_graphs
+            .iter()
+            .map(|sub_graph| sub_graph.nodes.iter().map(|_| F::bottom()).collect())
+            .collect();
+        FactBase { facts }
+    }
+
+    pub fn get(&self, label: Label) -> Option<&F> {
+        self.facts
+            .get(label.sub_graph())
+            .and_then(|v| v.get(label.index()))
+    }
+
+    pub fn get_mut(&mut self, label: Label) -> Option<&mut F> {
+        self.facts
+            .get_mut(label.sub_graph())
+            .and_then(|v| v.get_mut(label.index()))
+    }
+
+    pub fn get_disjoint(&mut self, first: Label, second: Label) -> Option<(&mut F, &F)> {
+        if first.sub_graph() >= self.facts.len() || second.sub_graph() >= self.facts.len() {
+            return None;
+        }
+        if first.sub_graph == second.sub_graph {
+            let sub_graph_facts = &mut self.facts[first.sub_graph()];
+            if first.index() >= sub_graph_facts.len() || second.index() >= sub_graph_facts.len() {
+                return None;
+            }
+            return Some(mut_two(sub_graph_facts, first.index(), second.index()));
+        } else {
+            let (left, right) = mut_two(&mut self.facts, first.sub_graph(), second.sub_graph());
+            if first.index() >= left.len() || second.index() >= right.len() {
+                return None;
+            }
+            return Some((&mut left[first.index()], &right[second.index()]));
+        }
+    }
+}
 
 pub fn forward_analyze<A, I, F>(analysis: &mut A, graph: &Graph<I>) -> FactBase<F>
 where
@@ -228,8 +284,8 @@ where
     I: Instruction,
     F: Lattice,
 {
-    let mut fact_base = FnvHashMap::default();
-    fact_base.insert(ENTRY, RefCell::new(F::top()));
+    let mut fact_base = FactBase::new(graph);
+    *fact_base.get_mut(ENTRY).unwrap() = F::top();
 
     let mut working_set = FnvHashSet::default();
     working_set.insert(ENTRY);
@@ -237,59 +293,31 @@ where
     let mut pc = ENTRY;
     while let Some(new_pc) = working_set.iter().next() {
         pc = *new_pc;
-
         'path: loop {
             working_set.remove(&pc);
             let instruction = graph.get_instruction(pc);
-            let fact = fact_base
-                .get(&pc)
-                .expect("we should always have a fact for our current pc")
-                .borrow();
 
-            match analysis.analyze(graph, pc, &instruction, &fact) {
+            let successors = instruction.successors();
+            let mut need_new_pc = !successors.fallthrough;
+            let fallthrough_pc = graph.next_pc(pc);
+            let (fallthrough_fact, current_fact) =
+                fact_base.get_disjoint(fallthrough_pc, pc).unwrap();
+
+            match analysis.analyze(graph, pc, &instruction, &current_fact) {
                 Rewrite::NoChange => {
-                    drop(fact);
-                    let successors = instruction.successors();
-
-                    let mut need_new_pc = !successors.fallthrough;
-
                     if successors.fallthrough {
-                        let left = graph.next_pc(pc);
-                        fact_base
-                            .entry(left)
-                            .or_insert_with(|| RefCell::new(F::bottom()));
-
-                        let old_fact = fact_base.get(&left).expect("we just inserted a new entry");
-
-                        let fact = fact_base
-                            .get(&pc)
-                            .expect("we should always have a fact for our current pc");
-
-                        // As you can see, like down below, we are relying on the idea that
-                        // an instruction is never going to loop back directly on itself,
-                        // so that the old & new facts are disjoint.
-                        if old_fact.borrow_mut().join(&fact.borrow(), left) {
-                            pc = left;
+                        if fallthrough_fact.join(&current_fact, fallthrough_pc) {
+                            pc = fallthrough_pc;
                         } else {
                             need_new_pc = true;
                         }
                     }
 
                     for successor in successors.jumps {
-                        fact_base
-                            .entry(successor)
-                            .or_insert_with(|| RefCell::new(F::bottom()));
+                        let (successor_fact, current_fact) =
+                            fact_base.get_disjoint(successor, pc).unwrap();
 
-                        let old_fact = fact_base
-                            .get(&successor)
-                            .expect("we just inserted a new entry");
-
-                        let fact = fact_base
-                            .get(&pc)
-                            .expect("we should always have a fact for our current pc");
-
-                        if old_fact.borrow_mut().join(&fact.borrow(), successor) && successor != pc
-                        {
+                        if successor_fact.join(&current_fact, successor) && successor != pc {
                             working_set.insert(successor);
                         }
                     }
@@ -299,28 +327,17 @@ where
                     }
                 }
                 Rewrite::Fact(new_fact) => {
-                    drop(fact);
-                    let successors = instruction.successors();
-                    let mut need_new_pc = !successors.fallthrough;
-
                     if successors.fallthrough {
-                        let left = graph.next_pc(pc);
-
-                        let old_fact = fact_base
-                            .entry(left)
-                            .or_insert_with(|| RefCell::new(F::bottom()));
-                        if old_fact.get_mut().join(&new_fact, left) {
-                            pc = left;
+                        if fallthrough_fact.join(&new_fact, fallthrough_pc) {
+                            pc = fallthrough_pc;
                         } else {
                             need_new_pc = true;
                         }
                     }
-
                     for successor in successors.jumps {
-                        let old_fact = fact_base
-                            .entry(successor)
-                            .or_insert_with(|| RefCell::new(F::bottom()));
-                        if old_fact.get_mut().join(&new_fact, successor) && successor != pc {
+                        let successor_fact = fact_base.get_mut(successor).unwrap();
+
+                        if successor_fact.join(&new_fact, successor) && successor != pc {
                             working_set.insert(successor);
                         }
                     }
@@ -329,6 +346,9 @@ where
                         break 'path;
                     }
                 }
+                // TODO: Notes for when I implement these, of course we're going to have to be
+                //  working off of a duplicated graph. But we'll also have to update the fact base
+                //  to be able to hold facts for the sub graph
                 Rewrite::Single(new_instruction) => panic!("not implemented yet"),
                 Rewrite::Many(new_instructions) => panic!("not implemented yet"),
             }
