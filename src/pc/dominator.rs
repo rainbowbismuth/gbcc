@@ -17,7 +17,7 @@ impl Lattice for DominatorFact {
         Self::bottom()
     }
 
-    fn join(&mut self, other: &Self, label: Label) -> bool {
+    fn join(&mut self, other: &Self, _label: Label) -> bool {
         if self.dominates.is_none() {
             self.dominates = other.dominates.clone();
             return true;
@@ -45,7 +45,7 @@ impl<I: Instruction> Analysis<I, DominatorFact> for DominatorAnalysis {
         &mut self,
         _graph: &Graph<I>,
         label: Label,
-        instruction: &I,
+        _instruction: &I,
         fact: &DominatorFact,
     ) -> Rewrite<I, DominatorFact> {
         let mut dominates = fact.dominates.clone();
