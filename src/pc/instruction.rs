@@ -1,4 +1,28 @@
-use super::Label;
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub struct Label {
+    pub(crate) sub_graph: u32,
+    pub(crate) index: u32,
+}
+
+impl std::fmt::Debug for Label {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "L.{:04x}.{:04x}", self.sub_graph, self.index)
+    }
+}
+
+impl Label {
+    pub fn new(sub_graph: u32, index: u32) -> Label {
+        Label { sub_graph, index }
+    }
+
+    pub fn sub_graph(self) -> usize {
+        self.sub_graph as usize
+    }
+
+    pub fn index(self) -> usize {
+        self.index as usize
+    }
+}
 
 // TODO: We might want some sort of... optional context passed in?
 pub trait Instruction: Clone {

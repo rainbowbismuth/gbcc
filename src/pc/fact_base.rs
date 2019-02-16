@@ -47,13 +47,13 @@ impl<F: Lattice> FactBase<F> {
             if first.index() >= sub_graph_facts.len() || second.index() >= sub_graph_facts.len() {
                 return None;
             }
-            return Some(index_two(sub_graph_facts, first.index(), second.index()));
+            Some(index_two(sub_graph_facts, first.index(), second.index()))
         } else {
             let (left, right) = index_two(&mut self.facts, first.sub_graph(), second.sub_graph());
             if first.index() >= left.len() || second.index() >= right.len() {
                 return None;
             }
-            return Some((&mut left[first.index()], &right[second.index()]));
+            Some((&mut left[first.index()], &right[second.index()]))
         }
     }
 }

@@ -1,30 +1,5 @@
-use super::Instruction;
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub struct Label {
-    sub_graph: u32,
-    index: u32,
-}
-
-impl std::fmt::Debug for Label {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "L.{:04x}.{:04x}", self.sub_graph, self.index)
-    }
-}
-
-impl Label {
-    pub fn new(sub_graph: u32, index: u32) -> Label {
-        Label { sub_graph, index }
-    }
-
-    pub fn sub_graph(self) -> usize {
-        self.sub_graph as usize
-    }
-
-    pub fn index(self) -> usize {
-        self.index as usize
-    }
-}
+use super::*;
+use fnv::FnvHashSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Node<I: Instruction> {
@@ -92,7 +67,7 @@ impl<I: Instruction> Graph<I> {
             if self.node_exists(label) {
                 return label;
             } else {
-                if label.sub_graph == 0 {
+                if label.sub_graph() == 0 {
                     panic!("We should have never reached the end of the program without encountering a halt or return like instruction")
                 }
                 // We went off the end of this sub-graph, so we implicitly return to it's entry point.
@@ -115,6 +90,32 @@ impl<I: Instruction> Graph<I> {
     fn node_exists(&self, label: Label) -> bool {
         self.sub_graphs[label.sub_graph()].contains(label)
     }
+
+    pub fn post_order_traversal(&self, start: Label) -> Vec<Label> {
+        let mut seen = FnvHashSet::default();
+        let mut output = vec![];
+        fn go<I: Instruction>(
+            label: Label,
+            graph: &Graph<I>,
+            seen: &mut FnvHashSet<Label>,
+            output: &mut Vec<Label>,
+        ) {
+            let forwarded = graph.forward_label_completely(label);
+            if !seen.insert(forwarded) {
+                return;
+            }
+            let successors = graph.get_instruction(forwarded).successors();
+            if successors.fallthrough {
+                go(graph.next_pc(forwarded), graph, seen, output);
+            }
+            for successor in successors.jumps {
+                go(successor, graph, seen, output);
+            }
+            output.push(label);
+        };
+        go(start, self, &mut seen, &mut output);
+        output
+    }
 }
 
 pub(crate) struct SubGraph<I: Instruction> {
@@ -136,7 +137,7 @@ impl<I: Instruction> SubGraph<I> {
         &self.nodes
     }
 
-    fn contains(&self, label: Label) -> bool {
+    pub(crate) fn contains(&self, label: Label) -> bool {
         (self.number as usize) == label.sub_graph() && label.index() < self.nodes.len()
     }
 }

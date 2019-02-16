@@ -34,7 +34,7 @@ where
     let mut working_set = FnvHashSet::default();
     working_set.insert(ENTRY);
 
-    let mut pc = ENTRY;
+    let mut pc;
     while let Some(new_pc) = working_set.iter().next() {
         pc = *new_pc;
         'path: loop {
